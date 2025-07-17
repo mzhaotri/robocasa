@@ -342,14 +342,22 @@ def create_env_for_data_processing(
     env_kwargs.pop("camera_height", None)
     env_kwargs.pop("camera_width", None)
     env_kwargs.pop("reward_shaping", None)
+
+    # env_kwargs['render_offscreen'] = True
+    # env_kwargs['use_image_obs'] = True
+    # env_kwargs['has_renderer'] = True
     # env_kwargs.pop("env_version", None)
     # env_kwargs.pop("type", None)
+    # env_kwargs.pop("render_offscreen", None)
+    # env_kwargs.pop("use_image_obs", None)
+    # env_kwargs.pop("has_renderer", None)
 
     if seed is not None:
         env_kwargs["seed"] = seed
 
-    print("env_kwargs", env_kwargs)
-
+    # print("env_kwargs", env_kwargs)
+    # env_name = 'CoffeeServeMug'
+    # del env_kwargs['env_name']
     env = env_class.create_for_data_processing(
         env_name=env_name,
         camera_names=camera_names,
@@ -357,6 +365,9 @@ def create_env_for_data_processing(
         camera_width=camera_width,
         reward_shaping=reward_shaping,
         is_dagger_data=is_dagger_data,
+        # has_renderer=True,
+        # use_image_obs=True,
+        # render_offscreen=True,
         **env_kwargs,
     )
     check_env_version(env, env_meta)

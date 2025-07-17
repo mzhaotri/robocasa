@@ -9,8 +9,11 @@ import imageio
 import numpy as np
 import robosuite
 from termcolor import colored
-
+import numpy as np
+from scipy.spatial.transform import Rotation as R
 import robocasa
+import pdb
+from scipy.spatial.transform import Slerp
 
 
 def playback_trajectory_with_env(
@@ -70,25 +73,36 @@ def playback_trajectory_with_env(
     if render is False:
         print(colored("Running episode...", "yellow"))
 
+    # sped_up_actions = # Slow down the trajectory by a factor of 5
+    actions = smoothe_trajectory(actions, cutoff_ratio=0.1)
+    # arm_actions = actions[:, :7]
+    # # pdb.set_trace()
+    # slowed_trajectory = slow_down_trajectory(arm_actions, factor=2)
+    # # stack [0,0,0,0,-1] for the dimension of the new slowed trajectory
+    # zero_base = np.stack([[0, 0, 0, 0, -1]] * slowed_trajectory.shape[0], axis=0)
+    # slowed_trajectory = np.concatenate([slowed_trajectory, zero_base], axis=1)  # concatenate the zero base to the slowed trajectory
+    # actions = slowed_trajectory
+    traj_len = actions.shape[0]  # update trajectory length after slowing down
     for i in range(traj_len):
         start = time.time()
+        #
 
         if action_playback:
             env.step(actions[i])
             if i < traj_len - 1:
                 # check whether the actions deterministically lead to the same recorded states
                 state_playback = np.array(env.sim.get_state().flatten())
-                if not np.all(np.equal(states[i + 1], state_playback)):
-                    err = np.linalg.norm(states[i + 1] - state_playback)
-                    if verbose or i == traj_len - 2:
-                        print(
-                            colored(
-                                "warning: playback diverged by {} at step {}".format(
-                                    err, i
-                                ),
-                                "yellow",
-                            )
-                        )
+                # if not np.all(np.equal(states[i + 1], state_playback)):
+                #     err = np.linalg.norm(states[i + 1] - state_playback)
+                #     if verbose or i == traj_len - 2:
+                #         print(
+                #             colored(
+                #                 "warning: playback diverged by {} at step {}".format(
+                #                     err, i
+                #                 ),
+                #                 "yellow",
+                #             )
+                #         )
         else:
             reset_to(env, {"states": states[i]})
 
@@ -273,6 +287,278 @@ def reset_to(env, state):
     # return None
 
 
+# Helper function to interpolate between two values
+def linear_interpolate(start, end, t):
+    return start + (end - start) * t
+
+
+# Slerp interpolation for quaternions
+def slerp(quat1, quat2, t):
+    # Perform Slerp (Spherical Linear Interpolation) for quaternions
+    r1 = R.from_quat([quat1, quat2])
+    r2 = R.from_quat(quat2)
+    from scipy.spatial.transform import Slerp
+
+    # pdb.set_trace()
+    times = np.array([0, 1])
+    # keyrots = np.array([r1, r2])
+    # setup key rots and a scipy.transform.rotation object
+    # keyrots = np.array([r1.as_quat(), r2.as_quat()])
+    keyrots = R.from_quat([quat1, quat2])
+
+    slerp_result = Slerp(times, keyrots)
+    interp_times = np.arange(0, 1, 1 / t)
+    interp_rots = slerp_result(interp_times)
+    # convert to rotation vector
+    interp_rots = interp_rots.as_rotvec()
+    return interp_rots
+
+
+# Manual Slerp interpolation for quaternions
+def manual_slerp(quat1, quat2, t):
+    # Convert quaternions to Rotation objects
+    r1 = R.from_quat(quat1)
+    r2 = R.from_quat(quat2)
+
+    # Compute the dot product between the two quaternions
+    dot_product = np.dot(r1.as_quat(), r2.as_quat())
+
+    # If dot product is negative, negate one quaternion to get the shortest path
+    if dot_product < 0.0:
+        r2 = R.from_quat(-r2.as_quat())
+        dot_product = -dot_product
+
+    # If the dot product is very close to 1, use linear interpolation
+    if dot_product > 0.9995:
+        return R.slerp(t, [r1, r2]).as_quat()[0]
+
+    # Compute the angle between the quaternions
+    theta_0 = np.arccos(dot_product)
+    theta = theta_0 * t
+
+    # Compute the slerp
+    q3 = r2.as_quat() - r1.as_quat() * dot_product
+    q3 /= np.linalg.norm(q3)
+
+    return r1.as_quat() * np.cos(theta) + q3 * np.sin(theta)
+
+
+# Function to interpolate between two relative joint actions
+def interpolate_actions(action1, action2, t):
+    # Extract the components of each action (Position, Rotation, Gripper Pose)
+    # pdb.set_trace()
+    position1, rotation1, gripper1 = action1[:3], action1[3:6], action1[6]
+    position2, rotation2, gripper2 = action2[:3], action2[3:6], action2[6]
+
+    # Interpolate for position (linear interpolation)
+    # interpolated_positions = [linear_interpolate(position1[i], position2[i], t) for i in range(3)]
+
+    # linear interpolation between positions for a factor of t
+    t_values = np.linspace(0, 1, t)
+
+    # Interpolate linearly for each value of t
+    interpolated_positions = np.array(
+        [position1 + t * (position2 - position1) for t in t_values]
+    )
+
+    # Instead, interpolate by dividing by the number of steps
+
+    # convert 3d rotation to quaternions
+    quat1 = R.from_rotvec(rotation1).as_quat()
+    quat2 = R.from_rotvec(rotation2).as_quat()
+
+    # Interpolate for rotation (Slerp interpolation for quaternions)
+    interpolated_rotations = slerp(quat1, quat2, t)
+
+    # convert back to rotation vector
+    # interpolated_rotations = R.from_quat(interpolated_rotations).as_rotvec()
+
+    # Interpolate for rotation (Slerp interpolation for quaternions)
+    interpolated_gripper = np.array(
+        [gripper1 + t * (gripper2 - gripper1) for t in t_values]
+    )
+
+    # interpolated_positions = np.array(interpolated_positions)
+    interpolated_gripper = np.expand_dims(
+        interpolated_gripper, axis=1
+    )  # make it a column vector
+    # pdb.set_trace()
+    # Return the interpolated action
+    return np.concatenate(
+        [interpolated_positions, interpolated_rotations, interpolated_gripper], axis=1
+    )
+
+
+# Slow down trajectory by inserting interpolated actions between each pair of consecutive actions
+def slow_down_trajectory_old(actions, factor=2):
+    new_trajectory = []
+
+    for i in range(len(actions) - 1):
+        # Get the two consecutive actions
+        action1 = actions[i]
+        action2 = actions[i + 1]
+
+        # Insert the original action
+        # new_trajectory.append(action1)
+
+        # Insert interpolated actions to slow down (factor defines the number of interpolated steps)
+        # for t in range(1, factor):  # Interpolate `factor-1` times between two actions
+        interpolated_action = interpolate_actions(action1, action2, factor)
+        new_trajectory.extend(list(interpolated_action))
+
+    # Append the last action
+    new_trajectory.append(actions[-1])
+
+    # Compute relative actions (difference between consecutive steps)
+    # new_trajectory = [new_trajectory[i+1] - new_trajectory[i] for i in range(len(new_trajectory) - 1)]
+
+    # pdb.set_trace()
+
+    return np.array(new_trajectory)
+
+
+def interpolate_relative_rotations(quaternions, num_steps_between=10):
+    """
+    Perform slerp interpolation on a list of relative rotation quaternions.
+
+    Args:
+        quaternions (list or np.ndarray): List of quaternions (Nx4).
+        num_steps_between (int): Number of interpolation steps between original quaternions.
+
+    Returns:
+        List of interpolated quaternions including originals.
+    """
+    key_times = np.arange(len(quaternions))
+    rotations = R.from_quat(quaternions)
+
+    # Interpolation times
+    interp_times = np.linspace(
+        0, len(quaternions) - 1, num=(len(quaternions) - 1) * num_steps_between + 1
+    )
+
+    # Slerp interpolator
+    slerp = Slerp(key_times, rotations)
+    interp_rots = slerp(interp_times)
+
+    return interp_rots.as_rotvec()
+
+
+def slow_down_trajectory(actions, factor=2):
+    new_trajectory = []
+
+    for i in range(len(actions) - 1):
+        # Get the two consecutive actions
+        action1 = actions[i]
+        action2 = actions[i + 1]
+
+        # Insert the original action
+        # new_trajectory.append(action1)
+
+        # Insert interpolated actions to slow down (factor defines the number of interpolated steps)
+        # for t in range(1, factor):  # Interpolate `factor-1` times between two actions
+        # interpolated_action = interpolate_actions(action1, action2, factor)
+        # just append to new_trajectory the actions divided by factor
+        interpolated_action = action1 / factor
+
+        # for _ in range(factor - 1):
+        #     # Insert the interpolated action
+        #     new_trajectory.append(interpolated_action)
+        # new_trajectory.append(list(interpolated_action))
+
+        quat1 = R.from_rotvec(action1[3:6]).as_quat()
+        quat2 = R.from_rotvec(action2[3:6]).as_quat()
+        identity = R.from_quat([[0, 0, 0, 1]])
+        quat1 = R.from_quat(quat1)
+        # pdb.set_trace()
+        slerp = Slerp([0, 1], R.concatenate([identity, quat1]))
+        partial_rot = slerp([1 / factor])
+        scaled_quat = partial_rot.as_rotvec()[0]
+        interpolated_action[
+            3:6
+        ] = scaled_quat  # set the rotation part to the scaled quaternion
+        # interpolated_quats = interpolate_relative_rotations([quat1, quat2], num_steps_between=factor)
+        # convert back to rotation vector
+        # interpolated_quats = R.from_quat(interpolated_quats).as_rotvec
+        # # convert to numpy array
+        # interpolated_quats = np.array(interpolated_quats)
+        # pdb.set_trace()
+        for _ in range(factor - 1):  # Insert (factor-1) interpolated actions
+            # tmp_interpolated_action = interpolated_action
+            # # set the rotation part to the interpolated quaternion
+            # tmp_interpolated_action[3:6] = interpolated_quats[_]
+            # new_trajectory.append(tmp_interpolated_action)
+            new_trajectory.append(interpolated_action)
+            # Identity rotation (no rotation)
+
+        # pdb.set_trace()
+        # new_trajectory.extend(list(interpolated_quats))
+
+    # Append the last action
+    new_trajectory.append(actions[-1])
+
+    # Compute relative actions (difference between consecutive steps)
+    # new_trajectory = [new_trajectory[i+1] - new_trajectory[i] for i in range(len(new_trajectory) - 1)]
+
+    # pdb.set_trace()
+
+    return np.array(new_trajectory)
+
+
+def fft_smooth_trajectory(relative_xyz, cutoff_ratio=0.1):
+    """
+    Smooths a trajectory of relative xyz actions using FFT filtering.
+
+    Args:
+        relative_xyz (np.ndarray): Array of shape (T, 3) with relative xyz actions.
+        cutoff_ratio (float): Ratio of frequencies to keep (0 < ratio < 1). Lower = smoother.
+
+    Returns:
+        np.ndarray: Smoothed relative xyz actions (same shape).
+    """
+    T, D = relative_xyz.shape
+    smoothed = np.zeros_like(relative_xyz)
+
+    # For each dimension (x, y, z)
+    # for d in range(D):
+    #     signal = relative_xyz[:, d]
+    #     freq = np.fft.fft(signal)
+
+    #     # Zero out high-frequency components
+    #     cutoff = int(T * cutoff_ratio)
+    #     freq[cutoff:T - cutoff] = 0  # keep low frequencies only
+
+    #     # Inverse FFT to get smoothed signal
+    #     smoothed[:, d] = np.fft.ifft(freq).real
+    for d in range(D):
+        signal = relative_xyz[:, d]
+        freq = np.fft.fft(signal)
+        magnitude = np.abs(freq)
+
+        # Compute threshold
+        std = np.std(magnitude)
+        threshold = 2 * std
+
+        # Zero out low-magnitude frequency components
+        freq_filtered = np.where(magnitude > threshold, freq, 0)
+
+        # Inverse FFT
+        smoothed[:, d] = np.fft.ifft(freq_filtered).real
+
+    return smoothed
+
+
+def smoothe_trajectory(actions, cutoff_ratio=0.1):
+    xyz = actions[:, :3]  # extract xyz positions
+    smoothed_xyz = fft_smooth_trajectory(
+        xyz, cutoff_ratio=cutoff_ratio
+    )  # smooth xyz positions
+    new_actions = np.concatenate(
+        [smoothed_xyz, actions[:, 3:]], axis=1
+    )  # concatenate smoothed xyz with other action parts
+
+    return new_actions
+
+
 def playback_dataset(args):
     # some arg checking
     write_video = args.render is not True
@@ -322,10 +608,11 @@ def playback_dataset(args):
 
         env_kwargs = env_meta["env_kwargs"]
         env_kwargs["env_name"] = env_meta["env_name"]
-        env_kwargs["has_renderer"] = False
+        env_kwargs["has_renderer"] = True
         env_kwargs["renderer"] = "mjviewer"
-        env_kwargs["has_offscreen_renderer"] = write_video
+        env_kwargs["has_offscreen_renderer"] = True
         env_kwargs["use_camera_obs"] = False
+        # env_kwargs["control_freq"] = 5
 
         if args.verbose:
             print(

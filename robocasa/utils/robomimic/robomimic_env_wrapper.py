@@ -475,6 +475,15 @@ class EnvRobocasa:
             postprocess_visual_obs=False,
             **kwargs,
         )
+        # has_camera = True
+        # return cls(
+        #     env_name=env_name,
+        #     render=True,
+        #     render_offscreen=has_camera,
+        #     use_image_obs=has_camera,
+        #     postprocess_visual_obs=False,
+        #     **kwargs,
+        # )
 
     @property
     def rollout_exceptions(self):
