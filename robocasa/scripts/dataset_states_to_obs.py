@@ -568,14 +568,17 @@ def extract_multiple_trajectories_with_error(
         env_meta = MG_FileUtils.get_env_metadata_from_dataset(dataset_path=args.dataset)
     else:
         env_meta = DatasetUtils.get_env_metadata_from_dataset(dataset_path=args.dataset)
-    if args.generative_textures:
-        env_meta["env_kwargs"]["generative_textures"] = "100p"
+    # if args.generative_textures:
+    #     env_meta["env_kwargs"]["generative_textures"] = "100p"
     if args.randomize_cameras:
         env_meta["env_kwargs"]["randomize_cameras"] = True
 
     # if env_version in env_meta, delete
     if "env_version" in env_meta:
         del env_meta["env_version"]
+    # import pdb; pdb.set_trace()
+    env_meta["env_kwargs"]["generative_textures"] = False
+    print("env_meta:", env_meta)
     env = EnvUtils.create_env_for_data_processing(
         env_meta=env_meta,
         camera_names=args.camera_names,
@@ -726,6 +729,7 @@ def dataset_states_to_obs_multiprocessing(args):
     f.close()
 
     env_meta = DatasetUtils.get_env_metadata_from_dataset(dataset_path=args.dataset)
+    # import pdb; pdb.set_trace()
     num_processes = args.num_procs
 
     index = multiprocessing.Value("i", 0)

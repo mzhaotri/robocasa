@@ -1,9 +1,10 @@
 import os
+import pdb
 import h5py
 import json
 import torch
 import numpy as np
-
+import pdb
 import robocasa.utils.robomimic.robomimic_torch_utils as TorchUtils
 
 
@@ -23,7 +24,65 @@ def get_env_metadata_from_dataset(dataset_path):
     """
     dataset_path = os.path.expanduser(dataset_path)
     f = h5py.File(dataset_path, "r")
+
     env_meta = json.loads(f["data"].attrs["env_args"])
+    # pdb.set_trace()
+    # num_transition = sum(
+    #     [
+    #         f["data"][keyname]["obs"]["robot0_eef_pos"].shape[0]
+    #         for keyname in f["data"].keys()
+    #     ]
+    # )
+    env_meta = {
+        "env_name": "CoffeeServeMug",
+        "env_version": "1.4.1",
+        "type": 1,
+        "env_kwargs": {
+            "robots": "PandaMobile",
+            "controller_configs": {
+                "type": "OSC_POSE",
+                "input_max": 1,
+                "input_min": -1,
+                "output_max": [0.05, 0.05, 0.05, 0.5, 0.5, 0.5],
+                "output_min": [-0.05, -0.05, -0.05, -0.5, -0.5, -0.5],
+                "kp": 150,
+                "damping_ratio": 1,
+                "impedance_mode": "fixed",
+                "kp_limits": [0, 300],
+                "damping_ratio_limits": [0, 10],
+                "position_limits": None,
+                "orientation_limits": None,
+                "uncouple_pos_ori": True,
+                "control_delta": True,
+                "interpolation": None,
+                "ramp_ratio": 0.2,
+            },
+            "layout_ids": -1,
+            "style_ids": env_meta["env_kwargs"]["style_ids"],
+            "translucent_robot": False,
+            "obj_instance_split": "A",
+            "generative_textures": "100p",
+            "randomize_cameras": True,
+            "reward_shaping": False,
+            "camera_names": [
+                "robot0_agentview_left",
+                "robot0_agentview_right",
+                "robot0_eye_in_hand",
+            ],
+            "camera_heights": 128,
+            "camera_widths": 128,
+            "has_renderer": False,
+            "has_offscreen_renderer": True,
+            "ignore_done": True,
+            "use_object_obs": True,
+            "use_camera_obs": True,
+            "camera_depths": False,
+        },
+    }
+
+    # set
+    # pdb.set_trace()
+
     f.close()
     return env_meta
 
@@ -202,7 +261,7 @@ def move_demo_to_new_key(f, old_demo_key, new_demo_key, delete_old_demo=True):
 
 def make_demo_ids_contiguous(dataset):
     f = h5py.File(dataset, "a")  # edit mode
-
+    # pdb.set_trace()
     num_old_demos = max([int(demo_key.split("_")[-1]) for demo_key in f["data"]]) + 1
     missing_demo_inds = [
         i for i in range(num_old_demos) if f"demo_{i}" not in f["data"]
